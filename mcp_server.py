@@ -1,6 +1,7 @@
 # server.py
 from fastmcp import FastMCP
 import sqlite3
+import os
 
 mcp = FastMCP("expense-tracker")
 
@@ -41,3 +42,7 @@ def summarize(start_date: str, end_date: str) -> dict:
         (start_date, end_date)
     ).fetchall()
     return {r[0]: r[1] for r in rows}
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    mcp.run(transport="streamable-http", host="0.0.0.0", port=port)
