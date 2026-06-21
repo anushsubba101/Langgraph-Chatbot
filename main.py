@@ -53,5 +53,13 @@ async def modulus(a:float, b:float) -> float:
 def get_config() -> dict:
     return {"theme": "dark", "version": "1.0"}
 
+# @mcp.tool()
+# def clear_expenses() -> str:
+#     """Delete all expense entries from the database."""
+#     conn = get_db()
+#     conn.execute("DELETE FROM expenses")
+#     conn.commit()
+#     return "All expenses cleared."
+
 if __name__ == "__main__":
     mcp.run(transport="http", host="0.0.0.0", port=9000)

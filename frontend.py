@@ -1,6 +1,7 @@
 import streamlit as st
 from database import workflow, retrieve_all_threads
 from langchain_core.messages import HumanMessage
+from database import workflow, retrieve_all_threads, run_async
 import uuid
 
 
@@ -41,27 +42,41 @@ def safe_chunk_content(chunk_content) -> str:
     if isinstance(chunk_content, str):
         return chunk_content
     if isinstance(chunk_content, list):
-        # content blocks: extract text parts only
-        return "".join(
-            block.get("text", "") for block in chunk_content if isinstance(block, dict)
-        )
+        parts = []
+        for block in chunk_content:
+            if isinstance(block, dict):
+                # handle text blocks
+                if block.get("type") == "text":
+                    parts.append(block.get("text", ""))
+                # skip tool_use blocks
+        return "".join(parts)
     return ""
 
-def ai_chunks(user_input, config):
-    """Yield only clean text chunks from the chat_node."""
-    for chunk, metadata in workflow.stream(
-        {"messages": [HumanMessage(content=user_input)]},
-        config=config,
-        stream_mode="messages",
-    ):
-        if (
-            metadata.get("langgraph_node") == "chat_node"
-            and not getattr(chunk, "tool_calls", None)
-        ):
-            text = safe_chunk_content(chunk.content)
-            if text:
-                yield text
+from database import workflow, retrieve_all_threads, run_async, submit_async_task
 
+def ai_chunks(user_input, config):
+    async def _astream():
+        chunks = []
+        async for chunk, metadata in workflow.astream(
+            {"messages": [HumanMessage(content=user_input)]},
+            config=config,
+            stream_mode="messages",
+        ):
+            if (
+                metadata.get("langgraph_node") == "chat_node"
+                and not getattr(chunk, "tool_calls", None)
+                and hasattr(chunk, "content")
+                and chunk.content  # ← skip empty chunks
+            ):
+                text = safe_chunk_content(chunk.content)
+                if text:
+                    chunks.append(text)
+        return chunks
+
+    # ✅ Only call once
+    chunks = run_async(_astream())
+    for text in chunks:
+        yield text
 
 # ── Session state bootstrap ────────────────────────────────────────────────────
 

@@ -36,24 +36,20 @@ def submit_async_task(coro):
     return _submit_async(coro)
 
 model = ChatGroq(model="llama-3.3-70b-versatile")
-# search tools
 search_tool = DuckDuckGoSearchRun(region="us-en")
-
-# tools
 
 @tool
 def get_stock_price(symbol: str) -> dict:
     """Fetch the latest stock price for a given ticker symbol (e.g. 'AAPL', 'TSLA')."""
     url = (
         f"https://www.alphavantage.co/query"
-        f"?function=GLOBAL_QUOTE"   # ✅ available on free tier
+        f"?function=GLOBAL_QUOTE"
         f"&symbol={symbol}"
         f"&apikey=G53I02D463KO9F0W"
     )
     r = requests.get(url)
     data = r.json()
 
-    # ✅ Return a clean dict instead of raw API response
     quote = data.get("Global Quote", {})
     if not quote:
         return {"error": "Symbol not found or API limit reached"}
@@ -69,25 +65,29 @@ def get_stock_price(symbol: str) -> dict:
 
 client = MultiServerMCPClient(
     {
-        "arith": {
-            "transport": "stdio",
-            "command": "python3",
-            "args": ["D:\langgraph-chatbot\main.py"],
-        },
         "expense": {
             "transport": "streamable_http",
-            "url": "https://complete-blue-bobolink.fastmcp.app/mcp",
-            "headers": {
-                "Authorization": "Bearer YOUR_TOKEN_HERE"
-            }
+            "url": "https://langgraph-chatbot-production-9f18.up.railway.app/mcp"
         }
     }
 )
 
+# def load_mcp_tools() -> list[BaseTool]:
+#     try:
+#         return run_async(client.get_tools())
+#     except Exception:
+#         return []
+
 def load_mcp_tools() -> list[BaseTool]:
     try:
-        return run_async(client.get_tools())
-    except Exception:
+        tools = run_async(client.get_tools())
+        print("✅ Loaded MCP tools:", [t.name for t in tools])
+        return tools
+    except Exception as e:
+        print(f"❌ MCP tools load error: {type(e).__name__}: {e}")
+        if hasattr(e, 'exceptions'):
+            for sub in e.exceptions:
+                print(f"   ↳ Sub-exception: {type(sub).__name__}: {sub}")
         return []
 
 mcp_tools = load_mcp_tools()
@@ -96,16 +96,12 @@ llm_with_tools = model.bind_tools(tools) if tools else model
 
 #---------state--------------------------------------------------------------------------------------------
 class ChatState(TypedDict):
-# state doesnot handle chat histry i.e message gets updated every time new messages is added so we use reducer function inorder to maintian chain history. here instead of operator.add function i have used add_messages
     messages: Annotated[list[BaseMessage], add_messages]
 
 #-----------nodes--------------------------------------------------------------------------------------------
 async def chat_node(state: ChatState):
-    # take user query from state
     messages = state['messages']
-    # send to llm
     response = await llm_with_tools.ainvoke(messages)
-    # response store state
     return {'messages': [response]}
 
 tool_node = ToolNode(tools) if tools else None
@@ -122,7 +118,6 @@ checkpointer = run_async(_init_checkpointer())
 #-----------------graph--------------------------------------------------------------------
 graph = StateGraph(ChatState)
 
-# add nodes
 graph.add_node("chat_node", chat_node)
 graph.add_edge(START, "chat_node")
 
@@ -139,12 +134,10 @@ def retrieve_all_threads():
     all_threads = []
     seen = set()
     
-    # list() returns checkpoints newest-first, so first occurrence = latest thread
     for checkpoint in checkpointer.list(None):
         thread_id = checkpoint.config['configurable']['thread_id']
         if thread_id not in seen:
             seen.add(thread_id)
             all_threads.append(thread_id)
     
-    # Reverse so index [-1] = most recent
     return list(reversed(all_threads))
