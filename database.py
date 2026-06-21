@@ -8,6 +8,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.tools import tool, BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_core.messages import ToolMessage
 from dotenv import load_dotenv
 import sqlite3
 import requests
@@ -101,7 +102,22 @@ class ChatState(TypedDict):
 #-----------nodes--------------------------------------------------------------------------------------------
 async def chat_node(state: ChatState):
     messages = state['messages']
-    response = await llm_with_tools.ainvoke(messages)
+    
+    # Filter out empty tool messages
+    cleaned = []
+    for msg in messages:
+        if isinstance(msg, ToolMessage):
+            if msg.content and msg.content != [] and msg.content != "":
+                cleaned.append(msg)
+            else:
+                cleaned.append(ToolMessage(
+                    content="No result returned.",
+                    tool_call_id=msg.tool_call_id
+                ))
+        else:
+            cleaned.append(msg)
+    
+    response = await llm_with_tools.ainvoke(cleaned)
     return {'messages': [response]}
 
 tool_node = ToolNode(tools) if tools else None
